@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加班时长统计</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f4f4f4;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+
+        h2 {
+            color: #444;
+            margin-bottom: 15px;
+        }
+
+        .record-form, .record-list, .statistics {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .statistics .form-group input[type="date"] {
+            width: auto;
+            display: inline-block;
+            margin: 0 10px;
+        }
+
+        textarea {
+            height: 80px;
+            resize: vertical;
+        }
+
+        button {
+            background: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
+        button:hover {
+            background: #45a049;
+        }
+
+        .btn-export {
+            background: #2196F3;
+        }
+
+        .btn-export:hover {
+            background: #1976D2;
+        }
+
+        #recordsList {
+            margin-top: 15px;
+        }
+
+        .record-item {
+            border-bottom: 1px solid #eee;
+            padding: 10px 0;
+        }
+
+        .statistics p {
+            font-size: 1.1em;
+            margin: 10px 0;
+        }
+
+        .button-group {
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>加班时长统计</h1>
+        
+        <!-- 添加记录表单 -->
+        <div class="record-form">
+            <h2>添加记录</h2>
+            <form id="overtimeForm">
+                <div class="form-group">
+                    <label for="date">日期：</label>
+                    <input type="date" id="date" required>
+                </div>
+                <div class="form-group">
+                    <label for="startTime">开始时间：</label>
+                    <input type="time" id="startTime" required>
+                </div>
+                <div class="form-group">
+                    <label for="endTime">结束时间：</label>
+                    <input type="time" id="endTime" required>
+                </div>
+                <div class="form-group">
+                    <label for="reason">加班原因：</label>
+                    <textarea id="reason" required></textarea>
+                </div>
+                <button type="submit">保存记录</button>
+            </form>
+        </div>
+
+        <!-- 记录列表 -->
+        <div class="record-list">
+            <h2>历史记录</h2>
+            <div id="recordsList"></div>
+        </div>
+
+        <!-- 统计信息 -->
+        <div class="statistics">
+            <h2>统计信息</h2>
+            <div class="form-group">
+                <label>统计周期：</label>
+                <input type="date" id="cycleStart" onchange="updateStatistics()">
+                <span>至</span>
+                <input type="date" id="cycleEnd" onchange="updateStatistics()">
+            </div>
+            <p>当前周期总时长：<span id="cycleTotal">0</span> 小时</p>
+            <p>本年总时长：<span id="yearlyTotal">0</span> 小时</p>
+            <div class="button-group">
+                <button class="btn-export" onclick="exportRecords()">导出记录</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 初始化数据存储
+        let overtimeRecords = JSON.parse(localStorage.getItem('overtimeRecords')) || [];
+
+        // 页面加载时初始化统计周期
+        window.addEventListener('load', function() {
+            // 设置默认的统计周期（上月26日到本月25日）
+            let defaultStart = new Date();
+            defaultStart.setDate(26);
+            defaultStart.setMonth(defaultStart.getMonth() - 1);
+            
+            let defaultEnd = new Date();
+            defaultEnd.setDate(25);
+            
+            document.getElementById('cycleStart').value = defaultStart.toISOString().split('T')[0];
+            document.getElementById('cycleEnd').value = defaultEnd.toISOString().split('T')[0];
+            
+            updateStatistics();
+        });
+
+        // 表单提交处理
+        document.getElementById('overtimeForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            // 获取表单数据
+            const date = document.getElementById('date').value;
+            const startTime = document.getElementById('startTime').value;
+            const endTime = document.getElementById('endTime').value;
+            const reason = document.getElementById('reason').value;
+
+            // 计算时长
+            const duration = calculateDuration(startTime, endTime);
+
+            // 创建记录
+            const record = {
+                id: Date.now(),
+                date,
+                startTime,
+                endTime,
+                duration,
+                reason
+            };
+
+            // 保存记录
+            overtimeRecords.push(record);
+            localStorage.setItem('overtimeRecords', JSON.stringify(overtimeRecords));
+
+            // 更新显示
+            displayRecords();
+            updateStatistics();
+            
+            // 重置表单
+            this.reset();
+        });
+
+        // 计算时长
+        function calculateDuration(start, end) {
+            const startDate = new Date(`2000/01/01 ${start}`);
+            const endDate = new Date(`2000/01/01 ${end}`);
+            
+            let diff = (endDate - startDate) / (1000 * 60 * 60); // 转换为小时
+            if (diff < 0) diff += 24; // 处理跨日的情况
+            
+            return diff;
+        }
+
+        // 显示记录
+        function displayRecords() {
+            const recordsList = document.getElementById('recordsList');
+            recordsList.innerHTML = '';
+
+            overtimeRecords.sort((a, b) => new Date(b.date) - new Date(a.date))
+                .forEach(record => {
+                    const recordElement = document.createElement('div');
+                    recordElement.className = 'record-item';
+                    recordElement.innerHTML = `
+                        <p>日期：${record.date}</p>
+                        <p>时间：${record.startTime} - ${record.endTime}</p>
+                        <p>时长：${record.duration.toFixed(1)}小时</p>
+                        <p>原因：${record.reason}</p>
+                        <button onclick="deleteRecord(${record.id})">删除</button>
+                    `;
+                    recordsList.appendChild(recordElement);
+                });
+        }
+
+        // 删除记录
+        function deleteRecord(id) {
+            if (confirm('确定要删除这条记录吗？')) {
+                overtimeRecords = overtimeRecords.filter(record => record.id !== id);
+                localStorage.setItem('overtimeRecords', JSON.stringify(overtimeRecords));
+                displayRecords();
+                updateStatistics();
+            }
+        }
+
+        // 更新统计信息
+        function updateStatistics() {
+            const now = new Date();
+            const currentYear = now.getFullYear();
+
+            // 获取用户设置的统计周期
+            let cycleStart = document.getElementById('cycleStart').value;
+            let cycleEnd = document.getElementById('cycleEnd').value;
+
+            // 计算周期内的总时长
+            const cycleTotal = overtimeRecords
+                .filter(record => {
+                    const recordDate = record.date;
+                    return recordDate >= cycleStart && recordDate <= cycleEnd;
+                })
+                .reduce((total, record) => total + record.duration, 0);
+
+            // 计算年度总时长
+            const yearlyTotal = overtimeRecords
+                .filter(record => {
+                    const recordDate = new Date(record.date);
+                    return recordDate.getFullYear() === currentYear;
+                })
+                .reduce((total, record) => total + record.duration, 0);
+
+            // 更新显示
+            document.getElementById('cycleTotal').textContent = cycleTotal.toFixed(1);
+            document.getElementById('yearlyTotal').textContent = yearlyTotal.toFixed(1);
+        }
+
+        // 导出记录
+        function exportRecords() {
+            // 生成导出文本
+            let exportText = '加班记录导出\n';
+            exportText += '导出时间：' + new Date().toLocaleString() + '\n\n';
+            
+            // 添加统计信息
+            const cycleStart = document.getElementById('cycleStart').value;
+            const cycleEnd = document.getElementById('cycleEnd').value;
+            const cycleTotal = document.getElementById('cycleTotal').textContent;
+            const yearlyTotal = document.getElementById('yearlyTotal').textContent;
+            
+            exportText += `统计周期：${cycleStart} 至 ${cycleEnd}\n`;
+            exportText += `周期总时长：${cycleTotal} 小时\n`;
+            exportText += `年度总时长：${yearlyTotal} 小时\n\n`;
+            
+            // 添加详细记录
+            exportText += '详细记录：\n';
+            exportText += '================================================\n';
+            
+            overtimeRecords.sort((a, b) => new Date(b.date) - new Date(a.date))
+                .forEach(record => {
+                    exportText += `日期：${record.date}\n`;
+                    exportText += `时间：${record.startTime} - ${record.endTime}\n`;
+                    exportText += `时长：${record.duration.toFixed(1)}小时\n`;
+                    exportText += `原因：${record.reason}\n`;
+                    exportText += '================================================\n';
+                });
+            
+            // 创建并下载文本文件
+            const blob = new Blob([exportText], { type: 'text/plain;charset=utf-8' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `加班记录_${new Date().toISOString().split('T')[0]}.txt`;
+            link.click();
+            URL.revokeObjectURL(link.href);
+        }
+
+        // 初始化显示
+        displayRecords();
+        updateStatistics();
+    </script>
+</body>
+</html>
